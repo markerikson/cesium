@@ -1,27 +1,26 @@
-/*global define*/
 define([
         '../../Core/buildModuleUrl',
+        '../../Core/Check',
         '../../Core/Color',
         '../../Core/defined',
         '../../Core/defineProperties',
         '../../Core/destroyObject',
-        '../../Core/DeveloperError',
         '../../ThirdParty/knockout',
         '../getElement',
         '../subscribeAndEvaluate',
         './InfoBoxViewModel'
     ], function(
         buildModuleUrl,
+        Check,
         Color,
         defined,
         defineProperties,
         destroyObject,
-        DeveloperError,
         knockout,
         getElement,
         subscribeAndEvaluate,
         InfoBoxViewModel) {
-    "use strict";
+    'use strict';
 
     /**
      * A widget for displaying information or a description.
@@ -33,11 +32,9 @@ define([
      *
      * @exception {DeveloperError} Element with id "container" does not exist in the document.
      */
-    var InfoBox = function(container) {
+    function InfoBox(container) {
         //>>includeStart('debug', pragmas.debug);
-        if (!defined(container)) {
-            throw new DeveloperError('container is required.');
-        }
+        Check.defined('container', container);
         //>>includeEnd('debug')
 
         container = getElement(container);
@@ -94,13 +91,13 @@ click: function () { closeClicked.raiseEvent(this); }');
 
             //We inject default css into the content iframe,
             //end users can remove it or add their own via the exposed frame property.
-            var cssLink = frameDocument.createElement("link");
+            var cssLink = frameDocument.createElement('link');
             cssLink.href = buildModuleUrl('Widgets/InfoBox/InfoBoxDescription.css');
-            cssLink.rel = "stylesheet";
-            cssLink.type = "text/css";
+            cssLink.rel = 'stylesheet';
+            cssLink.type = 'text/css';
 
             //div to use for description content.
-            var frameContent = frameDocument.createElement("div");
+            var frameContent = frameDocument.createElement('div');
             frameContent.className = 'cesium-infoBox-description';
 
             frameDocument.head.appendChild(cssLink);
@@ -110,7 +107,7 @@ click: function () { closeClicked.raiseEvent(this); }');
             //1. It's an easy way to ensure order of operation so that we can adjust the height.
             //2. Knockout does not bind to elements inside of an iFrame, so we would have to apply a second binding
             //   model anyway.
-            that._descriptionSubscription = subscribeAndEvaluate(viewModel, '_descriptionSanitizedHtml', function(value) {
+            that._descriptionSubscription = subscribeAndEvaluate(viewModel, 'description', function(value) {
                 // Set the frame to small height, force vertical scroll bar to appear, and text to wrap accordingly.
                 frame.style.height = '5px';
                 frameContent.innerHTML = value;
@@ -140,7 +137,7 @@ click: function () { closeClicked.raiseEvent(this); }');
 
         //Chrome does not send the load event unless we explicitly set a src
         frame.setAttribute('src', 'about:blank');
-    };
+    }
 
     defineProperties(InfoBox.prototype, {
         /**

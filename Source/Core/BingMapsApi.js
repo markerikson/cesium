@@ -1,12 +1,17 @@
-/*global define,console*/
 define([
+        './Credit',
         './defined'
     ], function(
+        Credit,
         defined) {
-    "use strict";
+    'use strict';
 
-    var BingMapsApi = {
-    };
+    /**
+     * Object for setting and retrieving the default BingMaps API key.
+     *
+     * @exports BingMapsApi
+     */
+    var BingMapsApi = {};
 
     /**
      * The default Bing Maps API key to use if one is not provided to the
@@ -22,6 +27,8 @@ define([
     BingMapsApi.defaultKey = undefined;
 
     var printedBingWarning = false;
+    var errorCredit;
+    var errorString = '<b>This application is using Cesium\'s default Bing Maps key.  Please create a new key for the application as soon as possible and prior to deployment by visiting <a href="https://www.bingmapsportal.com/">https://www.bingmapsportal.com/</a>, and provide your key to Cesium by setting the Cesium.BingMapsApi.defaultKey property before constructing the CesiumWidget or any other object that uses the Bing Maps API.</b>';
 
     BingMapsApi.getKey = function(providedKey) {
         if (defined(providedKey)) {
@@ -30,13 +37,25 @@ define([
 
         if (!defined(BingMapsApi.defaultKey)) {
             if (!printedBingWarning) {
-                console.log('This application is using Cesium\'s default Bing Maps key.  Please create a new key for the application as soon as possible and prior to deployment by visiting https://www.bingmapsportal.com/, and provide your key to Cesium by setting the Cesium.BingMapsApi.defaultKey property before constructing the CesiumWidget or any other object that uses the Bing Maps API.');
+                console.log(errorString);
                 printedBingWarning = true;
             }
-            return 'Aj1ony_-Typ-KjG9SJWiKSHY23U1KmK7yAmZa9lDmuF2osXWkcZ22VPsqmCt0TCt';
+            return 'Ar9n20kTp-N8tEg3Dpx-Pgocmx3W0-GUnD_Bgt3h8g6pSeDL8yxByTVGHyMyjI2p';
         }
 
         return BingMapsApi.defaultKey;
+    };
+
+    BingMapsApi.getErrorCredit = function(providedKey) {
+        if (defined(providedKey) || defined(BingMapsApi.defaultKey)) {
+            return undefined;
+        }
+
+        if (!defined(errorCredit)) {
+            errorCredit = new Credit(errorString, true);
+        }
+
+        return errorCredit;
     };
 
     return BingMapsApi;

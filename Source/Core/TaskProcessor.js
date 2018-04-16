@@ -1,27 +1,28 @@
-/*global define*/
 define([
-        '../ThirdParty/Uri',
         '../ThirdParty/when',
         './buildModuleUrl',
         './defaultValue',
         './defined',
         './destroyObject',
         './DeveloperError',
+        './Event',
+        './getAbsoluteUri',
         './isCrossOriginUrl',
         './RuntimeError',
         'require'
     ], function(
-        Uri,
         when,
         buildModuleUrl,
         defaultValue,
         defined,
         destroyObject,
         DeveloperError,
+        Event,
+        getAbsoluteUri,
         isCrossOriginUrl,
         RuntimeError,
         require) {
-    "use strict";
+    'use strict';
 
     function canTransferArrayBuffer() {
         if (!defined(TaskProcessor._canTransferArrayBuffer)) {
@@ -64,6 +65,8 @@ define([
         return TaskProcessor._canTransferArrayBuffer;
     }
 
+    var taskCompletedEvent = new Event();
+
     function completeTask(processor, data) {
         --processor._activeTasks;
 
@@ -85,8 +88,10 @@ define([
                 error = new DeveloperError(data.error.message);
                 error.stack = data.error.stack;
             }
+            taskCompletedEvent.raiseEvent(error);
             deferred.reject(error);
         } else {
+            taskCompletedEvent.raiseEvent();
             deferred.resolve(data.result);
         }
 
@@ -138,9 +143,9 @@ define([
 
         if (defined(TaskProcessor._loaderConfig)) {
             bootstrapMessage.loaderConfig = TaskProcessor._loaderConfig;
-        } else if (defined(require.toUrl)) {
-            var baseUrl = new Uri('..').resolve(new Uri(buildModuleUrl('Workers/cesiumWorkerBootstrapper.js'))).toString();
-            bootstrapMessage.loaderConfig.baseUrl = baseUrl;
+        } else if (defined(define.amd) && !define.amd.toUrlUndefined && defined(require.toUrl)) {
+            bootstrapMessage.loaderConfig.baseUrl =
+                getAbsoluteUri('..', buildModuleUrl('Workers/cesiumWorkerBootstrapper.js'));
         } else {
             bootstrapMessage.loaderConfig.paths = {
                 'Workers' : buildModuleUrl('Workers')
@@ -171,13 +176,13 @@ define([
      *                                        scheduleTask will not queue any more tasks, allowing
      *                                        work to be rescheduled in future frames.
      */
-    var TaskProcessor = function(workerName, maximumActiveTasks) {
+    function TaskProcessor(workerName, maximumActiveTasks) {
         this._workerName = workerName;
         this._maximumActiveTasks = defaultValue(maximumActiveTasks, 5);
         this._activeTasks = 0;
         this._deferreds = {};
         this._nextID = 0;
-    };
+    }
 
     var emptyTransferableObjectArray = [];
 
@@ -190,7 +195,7 @@ define([
      * @param {*} parameters Any input data that will be posted to the worker.
      * @param {Object[]} [transferableObjects] An array of objects contained in parameters that should be
      *                                      transferred to the worker instead of copied.
-     * @returns {Promise} Either a promise that will resolve to the result when available, or undefined
+     * @returns {Promise.<Object>|undefined} Either a promise that will resolve to the result when available, or undefined
      *                    if there are too many active tasks,
      *
      * @example
@@ -259,8 +264,6 @@ define([
      * <br /><br />
      * Once an object is destroyed, it should not be used; calling any function other than
      * <code>isDestroyed</code> will result in a {@link DeveloperError} exception.
-     *
-     * @returns {undefined}
      */
     TaskProcessor.prototype.destroy = function() {
         if (defined(this._worker)) {
@@ -268,6 +271,16 @@ define([
         }
         return destroyObject(this);
     };
+
+    /**
+     * An event that's raised when a task is completed successfully.  Event handlers are passed
+     * the error object is a task fails.
+     *
+     * @type {Event}
+     *
+     * @private
+     */
+    TaskProcessor.taskCompletedEvent = taskCompletedEvent;
 
     // exposed for testing purposes
     TaskProcessor._defaultWorkerModulePrefix = 'Workers/';

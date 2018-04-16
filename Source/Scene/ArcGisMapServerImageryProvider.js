@@ -1,20 +1,18 @@
-/*global define*/
 define([
         '../Core/Cartesian2',
         '../Core/Cartesian3',
         '../Core/Cartographic',
-        '../Core/Math',
         '../Core/Credit',
         '../Core/defaultValue',
         '../Core/defined',
         '../Core/defineProperties',
         '../Core/DeveloperError',
         '../Core/Event',
-        '../Core/GeographicProjection',
         '../Core/GeographicTilingScheme',
-        '../Core/jsonp',
-        '../Core/loadJson',
+        '../Core/Math',
         '../Core/Rectangle',
+        '../Core/Resource',
+        '../Core/RuntimeError',
         '../Core/TileProviderError',
         '../Core/WebMercatorProjection',
         '../Core/WebMercatorTilingScheme',
@@ -26,18 +24,17 @@ define([
         Cartesian2,
         Cartesian3,
         Cartographic,
-        CesiumMath,
         Credit,
         defaultValue,
         defined,
         defineProperties,
         DeveloperError,
         Event,
-        GeographicProjection,
         GeographicTilingScheme,
-        jsonp,
-        loadJson,
+        CesiumMath,
         Rectangle,
+        Resource,
+        RuntimeError,
         TileProviderError,
         WebMercatorProjection,
         WebMercatorTilingScheme,
@@ -45,7 +42,7 @@ define([
         DiscardMissingTileImagePolicy,
         ImageryLayerFeatureInfo,
         ImageryProvider) {
-    "use strict";
+    'use strict';
 
     /**
      * Provides tiled imagery hosted by an ArcGIS MapServer.  By default, the server's pre-cached tiles are
@@ -55,7 +52,8 @@ define([
      * @constructor
      *
      * @param {Object} options Object with the following properties:
-     * @param {String} options.url The URL of the ArcGIS MapServer service.
+     * @param {Resource|String} options.url The URL of the ArcGIS MapServer service.
+     * @param {String} [options.token] The ArcGIS token used to authenticate with the ArcGIS MapServer service.
      * @param {TileDiscardPolicy} [options.tileDiscardPolicy] The policy that determines if a tile
      *        is invalid and should be discarded.  If this value is not specified, a default
      *        {@link DiscardMissingTileImagePolicy} is used for tiled map servers, and a
@@ -67,40 +65,46 @@ define([
      *        these defaults should be correct tile discarding for a standard ArcGIS Server.  To ensure
      *        that no tiles are discarded, construct and pass a {@link NeverTileDiscardPolicy} for this
      *        parameter.
-     * @param {Proxy} [options.proxy] A proxy to use for requests. This object is
-     *        expected to have a getURL function which returns the proxied URL, if needed.
      * @param {Boolean} [options.usePreCachedTilesIfAvailable=true] If true, the server's pre-cached
      *        tiles are used if they are available.  If false, any pre-cached tiles are ignored and the
      *        'export' service is used.
-     * @param {String} [layers] A comma-separated list of the layers to show, or undefined if all layers should be shown.
+     * @param {String} [options.layers] A comma-separated list of the layers to show, or undefined if all layers should be shown.
      * @param {Boolean} [options.enablePickFeatures=true] If true, {@link ArcGisMapServerImageryProvider#pickFeatures} will invoke
      *        the Identify service on the MapServer and return the features included in the response.  If false,
      *        {@link ArcGisMapServerImageryProvider#pickFeatures} will immediately return undefined (indicating no pickable features)
      *        without communicating with the server.  Set this property to false if you don't want this provider's features to
-     *        be pickable.
+     *        be pickable. Can be overridden by setting the {@link ArcGisMapServerImageryProvider#enablePickFeatures} property on the object.
      * @param {Rectangle} [options.rectangle=Rectangle.MAX_VALUE] The rectangle of the layer.  This parameter is ignored when accessing
      *                    a tiled layer.
      * @param {TilingScheme} [options.tilingScheme=new GeographicTilingScheme()] The tiling scheme to use to divide the world into tiles.
      *                       This parameter is ignored when accessing a tiled server.
+     * @param {Ellipsoid} [options.ellipsoid] The ellipsoid.  If the tilingScheme is specified and used,
+     *                    this parameter is ignored and the tiling scheme's ellipsoid is used instead. If neither
+     *                    parameter is specified, the WGS84 ellipsoid is used.
      * @param {Number} [options.tileWidth=256] The width of each tile in pixels.  This parameter is ignored when accessing a tiled server.
      * @param {Number} [options.tileHeight=256] The height of each tile in pixels.  This parameter is ignored when accessing a tiled server.
+     * @param {Number} [options.maximumLevel] The maximum tile level to request, or undefined if there is no maximum.  This parameter is ignored when accessing
+     *                                        a tiled server.
      *
      * @see BingMapsImageryProvider
-     * @see GoogleEarthImageryProvider
-     * @see OpenStreetMapImageryProvider
+     * @see GoogleEarthEnterpriseMapsProvider
+     * @see createOpenStreetMapImageryProvider
      * @see SingleTileImageryProvider
-     * @see TileMapServiceImageryProvider
+     * @see createTileMapServiceImageryProvider
      * @see WebMapServiceImageryProvider
+     * @see WebMapTileServiceImageryProvider
+     * @see UrlTemplateImageryProvider
      *
-     * @see {@link http://resources.esri.com/help/9.3/arcgisserver/apis/rest/|ArcGIS Server REST API}
-     * @see {@link http://www.w3.org/TR/cors/|Cross-Origin Resource Sharing}
      *
      * @example
      * var esri = new Cesium.ArcGisMapServerImageryProvider({
-     *     url: '//services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
+     *     url : 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
      * });
+     *
+     * @see {@link http://resources.esri.com/help/9.3/arcgisserver/apis/rest/|ArcGIS Server REST API}
+     * @see {@link http://www.w3.org/TR/cors/|Cross-Origin Resource Sharing}
      */
-    var ArcGisMapServerImageryProvider = function ArcGisMapServerImageryProvider(options) {
+    function ArcGisMapServerImageryProvider(options) {
         options = defaultValue(options, {});
 
         //>>includeStart('debug', pragmas.debug);
@@ -109,23 +113,41 @@ define([
         }
         //>>includeEnd('debug');
 
-        this._url = options.url;
+        var resource = Resource.createIfNeeded(options.url);
+        resource.appendForwardSlash();
+
+        if (defined(options.token)) {
+            resource.setQueryParameters({
+                token: options.token
+            });
+        }
+
+        this._resource = resource;
         this._tileDiscardPolicy = options.tileDiscardPolicy;
-        this._proxy = options.proxy;
 
         this._tileWidth = defaultValue(options.tileWidth, 256);
         this._tileHeight = defaultValue(options.tileHeight, 256);
-        this._maximumLevel = undefined;
-        this._tilingScheme = defaultValue(options.tilingScheme, new GeographicTilingScheme());
+        this._maximumLevel = options.maximumLevel;
+        this._tilingScheme = defaultValue(options.tilingScheme, new GeographicTilingScheme({ ellipsoid : options.ellipsoid }));
         this._credit = undefined;
         this._useTiles = defaultValue(options.usePreCachedTilesIfAvailable, true);
         this._rectangle = defaultValue(options.rectangle, this._tilingScheme.rectangle);
         this._layers = options.layers;
-        this._enablePickFeatures = defaultValue(options.enablePickFeatures, true);
+
+        /**
+         * Gets or sets a value indicating whether feature picking is enabled.  If true, {@link ArcGisMapServerImageryProvider#pickFeatures} will
+         * invoke the "identify" operation on the ArcGIS server and return the features included in the response.  If false,
+         * {@link ArcGisMapServerImageryProvider#pickFeatures} will immediately return undefined (indicating no pickable features)
+         * without communicating with the server.
+         * @type {Boolean}
+         * @default true
+         */
+        this.enablePickFeatures = defaultValue(options.enablePickFeatures, true);
 
         this._errorEvent = new Event();
 
         this._ready = false;
+        this._readyPromise = when.defer();
 
         // Grab the details of this MapServer.
         var that = this;
@@ -141,9 +163,9 @@ define([
 
                 if (tileInfo.spatialReference.wkid === 102100 ||
                     tileInfo.spatialReference.wkid === 102113) {
-                    that._tilingScheme = new WebMercatorTilingScheme();
+                    that._tilingScheme = new WebMercatorTilingScheme({ ellipsoid : options.ellipsoid });
                 } else if (data.tileInfo.spatialReference.wkid === 4326) {
-                    that._tilingScheme = new GeographicTilingScheme();
+                    that._tilingScheme = new GeographicTilingScheme({ ellipsoid : options.ellipsoid });
                 } else {
                     var message = 'Tile spatial reference WKID ' + data.tileInfo.spatialReference.wkid + ' is not supported.';
                     metadataError = TileProviderError.handleError(metadataError, that, that._errorEvent, message, undefined, undefined, undefined, requestMetadata);
@@ -157,8 +179,9 @@ define([
                             data.fullExtent.spatialReference.wkid === 102113) {
 
                             var projection = new WebMercatorProjection();
-                            var sw = projection.unproject(new Cartesian2(data.fullExtent.xmin, data.fullExtent.ymin));
-                            var ne = projection.unproject(new Cartesian2(data.fullExtent.xmax, data.fullExtent.ymax));
+                            var extent = data.fullExtent;
+                            var sw = projection.unproject(new Cartesian3(Math.max(extent.xmin, -that._tilingScheme.ellipsoid.maximumRadius * Math.PI), Math.max(extent.ymin, -that._tilingScheme.ellipsoid.maximumRadius * Math.PI), 0.0));
+                            var ne = projection.unproject(new Cartesian3(Math.min(extent.xmax, that._tilingScheme.ellipsoid.maximumRadius * Math.PI), Math.min(extent.ymax, that._tilingScheme.ellipsoid.maximumRadius * Math.PI), 0.0));
                             that._rectangle = new Rectangle(sw.longitude, sw.latitude, ne.longitude, ne.latitude);
                         } else if (data.fullExtent.spatialReference.wkid === 4326) {
                             that._rectangle = Rectangle.fromDegrees(data.fullExtent.xmin, data.fullExtent.ymin, data.fullExtent.xmax, data.fullExtent.ymax);
@@ -175,7 +198,7 @@ define([
                 // Install the default tile discard policy if none has been supplied.
                 if (!defined(that._tileDiscardPolicy)) {
                     that._tileDiscardPolicy = new DiscardMissingTileImagePolicy({
-                        missingImageUrl : buildImageUrl(that, 0, 0, that._maximumLevel),
+                        missingImageUrl : buildImageResource(that, 0, 0, that._maximumLevel).url,
                         pixelsToCheck : [new Cartesian2(0, 0), new Cartesian2(200, 20), new Cartesian2(20, 200), new Cartesian2(80, 110), new Cartesian2(160, 130)],
                         disableCheckIfAllPixelsAreTransparent : true
                     });
@@ -189,21 +212,23 @@ define([
             }
 
             that._ready = true;
+            that._readyPromise.resolve(true);
             TileProviderError.handleSuccess(metadataError);
         }
 
         function metadataFailure(e) {
-            var message = 'An error occurred while accessing ' + that._url + '.';
+            var message = 'An error occurred while accessing ' + that._resource.url + '.';
             metadataError = TileProviderError.handleError(metadataError, that, that._errorEvent, message, undefined, undefined, undefined, requestMetadata);
+            that._readyPromise.reject(new RuntimeError(message));
         }
 
         function requestMetadata() {
-            var metadata = jsonp(that._url, {
-                parameters : {
-                    f : 'json'
-                },
-                proxy : that._proxy
+            var resource = that._resource.getDerivedResource({
+                queryParameters: {
+                    f: 'json'
+                }
             });
+            var metadata = resource.fetchJsonp();
             when(metadata, metadataSuccess, metadataFailure);
         }
 
@@ -211,38 +236,48 @@ define([
             requestMetadata();
         } else {
             this._ready = true;
+            this._readyPromise.resolve(true);
         }
-    };
+    }
 
-    function buildImageUrl(imageryProvider, x, y, level) {
-        var url;
+    function buildImageResource(imageryProvider, x, y, level, request) {
+        var resource;
         if (imageryProvider._useTiles) {
-            url = imageryProvider._url + '/tile/' + level + '/' + y + '/' + x;
+            resource = imageryProvider._resource.getDerivedResource({
+                url: 'tile/' + level + '/' + y + '/' + x,
+                request: request
+            });
         } else {
             var nativeRectangle = imageryProvider._tilingScheme.tileXYToNativeRectangle(x, y, level);
-            var bbox = nativeRectangle.west + '%2C' + nativeRectangle.south + '%2C' + nativeRectangle.east + '%2C' + nativeRectangle.north;
+            var bbox = nativeRectangle.west + ',' + nativeRectangle.south + ',' + nativeRectangle.east + ',' + nativeRectangle.north;
 
-            url = imageryProvider._url + '/export?';
-            url += 'bbox=' + bbox;
+            var query = {
+                bbox: bbox,
+                size: imageryProvider._tileWidth + ',' + imageryProvider._tileHeight,
+                format: 'png',
+                transparent: true,
+                f: 'image'
+            };
+
             if (imageryProvider._tilingScheme instanceof GeographicTilingScheme) {
-                url += '&bboxSR=4326&imageSR=4326';
+                query.bboxSR = 4326;
+                query.imageSR = 4326;
             } else {
-                url += '&bboxSR=3857&imageSR=3857';
+                query.bboxSR = 3857;
+                query.imageSR = 3857;
             }
-            url += '&size=' + imageryProvider._tileWidth + '%2C' + imageryProvider._tileHeight;
-            url += '&format=png&transparent=true&f=image';
-
             if (imageryProvider.layers) {
-                url += '&layers=show:' + imageryProvider.layers;
+                query.layers = 'show:' + imageryProvider.layers;
             }
+
+            resource = imageryProvider._resource.getDerivedResource({
+                url: 'export',
+                request: request,
+                queryParameters: query
+            });
         }
 
-        var proxy = imageryProvider._proxy;
-        if (defined(proxy)) {
-            url = proxy.getURL(url);
-        }
-
-        return url;
+        return resource;
     }
 
     defineProperties(ArcGisMapServerImageryProvider.prototype, {
@@ -254,7 +289,19 @@ define([
          */
         url : {
             get : function() {
-                return this._url;
+                return this._resource._url;
+            }
+        },
+
+        /**
+         * Gets the ArcGIS token used to authenticate with the ArcGis MapServer service.
+         * @memberof ArcGisMapServerImageryProvider.prototype
+         * @type {String}
+         * @readonly
+         */
+        token : {
+            get : function() {
+                return this._resource.queryParameters.token;
             }
         },
 
@@ -266,7 +313,7 @@ define([
          */
         proxy : {
             get : function() {
-                return this._proxy;
+                return this._resource.proxy;
             }
         },
 
@@ -432,6 +479,18 @@ define([
         },
 
         /**
+         * Gets a promise that resolves to true when the provider is ready for use.
+         * @memberof ArcGisMapServerImageryProvider.prototype
+         * @type {Promise.<Boolean>}
+         * @readonly
+         */
+        readyPromise : {
+            get : function() {
+                return this._readyPromise.promise;
+            }
+        },
+
+        /**
          * Gets the credit to display when this imagery provider is active.  Typically this is used to credit
          * the source of the imagery.  This function should not be called before {@link ArcGisMapServerImageryProvider#ready} returns true.
          * @memberof ArcGisMapServerImageryProvider.prototype
@@ -481,30 +540,16 @@ define([
 
         /**
          * Gets the comma-separated list of layer IDs to show.
+         * @memberof ArcGisMapServerImageryProvider.prototype
+         *
          * @type {String}
          */
         layers : {
             get : function() {
                 return this._layers;
             }
-        },
-
-        /**
-         * Gets a value indicating whether feature picking is enabled.  If true, {@link ArcGisMapServerImageryProvider#pickFeatures} will
-         * invoke the "identify" operation on the ArcGIS server and return the features included in the response.  If false,
-         * {@link ArcGisMapServerImageryProvider#pickFeatures} will immediately return undefined (indicating no pickable features)
-         * without communicating with the server.
-         * @type {Boolean}
-         * @readonly
-         * @default true
-         */
-        enablePickFeatures : {
-            get : function() {
-                return this._enablePickFeatures;
-            }
         }
     });
-
 
     /**
      * Gets the credits to be displayed when a given tile is displayed.
@@ -527,22 +572,22 @@ define([
      * @param {Number} x The tile X coordinate.
      * @param {Number} y The tile Y coordinate.
      * @param {Number} level The tile level.
-     * @returns {Promise} A promise for the image that will resolve when the image is available, or
+     * @param {Request} [request] The request object. Intended for internal use only.
+     * @returns {Promise.<Image|Canvas>|undefined} A promise for the image that will resolve when the image is available, or
      *          undefined if there are too many active requests to the server, and the request
      *          should be retried later.  The resolved image may be either an
      *          Image or a Canvas DOM object.
      *
      * @exception {DeveloperError} <code>requestImage</code> must not be called before the imagery provider is ready.
      */
-    ArcGisMapServerImageryProvider.prototype.requestImage = function(x, y, level) {
+    ArcGisMapServerImageryProvider.prototype.requestImage = function(x, y, level, request) {
         //>>includeStart('debug', pragmas.debug);
         if (!this._ready) {
             throw new DeveloperError('requestImage must not be called before the imagery provider is ready.');
         }
         //>>includeEnd('debug');
 
-        var url = buildImageUrl(this, x, y, level);
-        return ImageryProvider.loadImage(this, url);
+        return ImageryProvider.loadImage(this, buildImageResource(this, x, y, level, request));
     };
 
     /**
@@ -555,7 +600,7 @@ define([
      * @param {Number} level The tile level.
      * @param {Number} longitude The longitude at which to pick features.
      * @param {Number} latitude  The latitude at which to pick features.
-     * @return {Promise} A promise for the picked features that will resolve when the asynchronous
+     * @return {Promise.<ImageryLayerFeatureInfo[]>|undefined} A promise for the picked features that will resolve when the asynchronous
      *                   picking completes.  The resolved value is an array of {@link ImageryLayerFeatureInfo}
      *                   instances.  The array may be empty if no features are found at the given location.
      *
@@ -568,7 +613,7 @@ define([
         }
         //>>includeEnd('debug');
 
-        if (!this._enablePickFeatures) {
+        if (!this.enablePickFeatures) {
             return undefined;
         }
 
@@ -588,13 +633,28 @@ define([
             sr = '3857';
         }
 
-        var url = this._url + '/identify?f=json&tolerance=2&layers=visible&geometryType=esriGeometryPoint';
-        url += '&geometry=' + horizontal + ',' + vertical;
-        url += '&mapExtent=' + rectangle.west + ',' + rectangle.south + ',' + rectangle.east + ',' + rectangle.north;
-        url += '&imageDisplay=' + this._tileWidth + ',' + this._tileHeight + ',96';
-        url += '&sr=' + sr;
+        var layers = 'visible';
+        if (defined(this._layers)) {
+            layers += ':' + this._layers;
+        }
 
-        return loadJson(url).then(function(json) {
+        var query = {
+            f: 'json',
+            tolerance: 2,
+            geometryType: 'esriGeometryPoint',
+            geometry: horizontal + ',' + vertical,
+            mapExtent: rectangle.west + ',' + rectangle.south + ',' + rectangle.east + ',' + rectangle.north,
+            imageDisplay: this._tileWidth + ',' + this._tileHeight + ',96',
+            sr: sr,
+            layers: layers
+        };
+
+        var resource = this._resource.getDerivedResource({
+            url: 'identify',
+            queryParameters: query
+        });
+
+        return resource.fetchJson().then(function(json) {
             var result = [];
 
             var features = json.results;

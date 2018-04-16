@@ -70,9 +70,15 @@
     color: #777;
 }
 
+.cesium-button input, .cesium-button label {
+    cursor: pointer;
+}
+
+.cesium-button input {
+    vertical-align: sub;
+}
+
 .cesium-toolbar-button {
-    -moz-box-sizing: border-box;
-    -webkit-box-sizing: border-box;
     box-sizing: border-box;
     width: 32px;
     height: 32px;
@@ -80,4 +86,31 @@
     padding: 0;
     vertical-align: middle;
     z-index: 0; /* Workaround for rounded raster image corners in Chrome */
+}
+
+.cesium-performanceDisplay-defaultContainer {
+    position: absolute;
+    top: 50px;
+    right: 10px;
+    text-align: right;
+}
+
+.cesium-performanceDisplay {
+    background-color: rgba(40, 40, 40, 0.7);
+    padding: 7px;
+    border-radius: 5px;
+    border: 1px solid #444;
+    font: bold 12px sans-serif;
+}
+
+.cesium-performanceDisplay-fps {
+    color: #e52;
+}
+
+.cesium-performanceDisplay-throttled {
+    color: #a42;
+}
+
+.cesium-performanceDisplay-ms {
+    color: #de3;
 }
